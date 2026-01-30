@@ -11,7 +11,7 @@ import * as readline from 'readline';
 // You'll need to fill these in from your Google Cloud Console
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'YOUR_CLIENT_ID';
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_CLIENT_SECRET';
-const REDIRECT_URI = 'http://localhost:3001/callback';
+const REDIRECT_URI = 'http://localhost:3002/callback';
 
 const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
@@ -79,8 +79,8 @@ async function getRefreshToken() {
     }
   });
 
-  server.listen(3001, () => {
-    console.log('Waiting for authorization... (listening on http://localhost:3001)\n');
+  server.listen(3002, () => {
+    console.log('Waiting for authorization... (listening on http://localhost:3002)\n');
   });
 }
 

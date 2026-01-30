@@ -1,52 +1,39 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+import { Redis } from '@upstash/redis';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const TRACKER_FILE = path.join(DATA_DIR, 'upload-tracker.json');
 const MAX_UPLOADS_PER_EMAIL = 2;
 
-interface TrackerData {
-  [email: string]: {
-    count: number;
-    uploads: Array<{
-      timestamp: string;
-      fileName: string;
-      fileId?: string;
-    }>;
-  };
-}
+// Initialize Redis client - will use REST API (works in serverless)
+function getRedis() {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-async function ensureDataDir() {
-  try {
-    await fs.access(DATA_DIR);
-  } catch {
-    await fs.mkdir(DATA_DIR, { recursive: true });
+  if (!url || !token) {
+    throw new Error(
+      'Upstash Redis not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. ' +
+      'Get free credentials at: https://console.upstash.com/'
+    );
   }
+
+  return new Redis({ url, token });
 }
 
-async function readTracker(): Promise<TrackerData> {
-  try {
-    await ensureDataDir();
-    const data = await fs.readFile(TRACKER_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    // File doesn't exist yet, return empty object
-    return {};
-  }
-}
-
-async function writeTracker(data: TrackerData): Promise<void> {
-  await ensureDataDir();
-  await fs.writeFile(TRACKER_FILE, JSON.stringify(data, null, 2), 'utf-8');
+interface UploadRecord {
+  count: number;
+  uploads: Array<{
+    timestamp: string;
+    fileName: string;
+    fileId?: string;
+  }>;
 }
 
 /**
  * Get the current upload count for an email
  */
 export async function getUploadCount(email: string): Promise<number> {
+  const redis = getRedis();
   const normalizedEmail = email.toLowerCase().trim();
-  const tracker = await readTracker();
-  return tracker[normalizedEmail]?.count || 0;
+  const record = await redis.get<UploadRecord>(`uploads:${normalizedEmail}`);
+  return record?.count || 0;
 }
 
 /**
@@ -73,16 +60,20 @@ export async function recordUpload(
   fileName: string,
   fileId?: string
 ): Promise<{ success: boolean; remaining: number; error?: string }> {
+  const redis = getRedis();
   const normalizedEmail = email.toLowerCase().trim();
-  const tracker = await readTracker();
+  const key = `uploads:${normalizedEmail}`;
+  
+  // Get existing record
+  let record = await redis.get<UploadRecord>(key);
 
   // Initialize if needed
-  if (!tracker[normalizedEmail]) {
-    tracker[normalizedEmail] = { count: 0, uploads: [] };
+  if (!record) {
+    record = { count: 0, uploads: [] };
   }
 
   // Check limit
-  if (tracker[normalizedEmail].count >= MAX_UPLOADS_PER_EMAIL) {
+  if (record.count >= MAX_UPLOADS_PER_EMAIL) {
     return {
       success: false,
       remaining: 0,
@@ -91,18 +82,19 @@ export async function recordUpload(
   }
 
   // Record the upload
-  tracker[normalizedEmail].count += 1;
-  tracker[normalizedEmail].uploads.push({
+  record.count += 1;
+  record.uploads.push({
     timestamp: new Date().toISOString(),
     fileName,
     fileId,
   });
 
-  await writeTracker(tracker);
+  // Save to Redis (expire after 30 days)
+  await redis.set(key, record, { ex: 60 * 60 * 24 * 30 });
 
   return {
     success: true,
-    remaining: MAX_UPLOADS_PER_EMAIL - tracker[normalizedEmail].count,
+    remaining: MAX_UPLOADS_PER_EMAIL - record.count,
   };
 }
 
@@ -110,7 +102,8 @@ export async function recordUpload(
  * Get upload history for an email
  */
 export async function getUploadHistory(email: string) {
+  const redis = getRedis();
   const normalizedEmail = email.toLowerCase().trim();
-  const tracker = await readTracker();
-  return tracker[normalizedEmail]?.uploads || [];
+  const record = await redis.get<UploadRecord>(`uploads:${normalizedEmail}`);
+  return record?.uploads || [];
 }
