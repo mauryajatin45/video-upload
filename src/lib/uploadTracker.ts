@@ -1,26 +1,35 @@
-import { Redis } from '@upstash/redis';
+import { MongoClient } from 'mongodb';
 
 const MAX_UPLOADS_PER_EMAIL = 2;
 
-// Initialize Redis client - will use REST API (works in serverless)
-function getRedis() {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+// MongoDB connection (cached for serverless)
+let cachedClient: MongoClient | null = null;
 
-  if (!url || !token) {
+async function getMongoClient(): Promise<MongoClient> {
+  const uri = process.env.MONGODB_URI;
+
+  if (!uri) {
     throw new Error(
-      'Upstash Redis not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. ' +
-      'Get free credentials at: https://console.upstash.com/'
+      'MongoDB not configured. Set MONGODB_URI environment variable. ' +
+      'Get a free database at: https://www.mongodb.com/atlas'
     );
   }
 
-  return new Redis({ url, token });
+  if (cachedClient) {
+    return cachedClient;
+  }
+
+  const client = new MongoClient(uri);
+  await client.connect();
+  cachedClient = client;
+  return client;
 }
 
 interface UploadRecord {
+  email: string;
   count: number;
   uploads: Array<{
-    timestamp: string;
+    timestamp: Date;
     fileName: string;
     fileId?: string;
   }>;
@@ -30,9 +39,12 @@ interface UploadRecord {
  * Get the current upload count for an email
  */
 export async function getUploadCount(email: string): Promise<number> {
-  const redis = getRedis();
+  const client = await getMongoClient();
+  const db = client.db('video-upload');
+  const collection = db.collection<UploadRecord>('uploads');
+  
   const normalizedEmail = email.toLowerCase().trim();
-  const record = await redis.get<UploadRecord>(`uploads:${normalizedEmail}`);
+  const record = await collection.findOne({ email: normalizedEmail });
   return record?.count || 0;
 }
 
@@ -60,20 +72,17 @@ export async function recordUpload(
   fileName: string,
   fileId?: string
 ): Promise<{ success: boolean; remaining: number; error?: string }> {
-  const redis = getRedis();
-  const normalizedEmail = email.toLowerCase().trim();
-  const key = `uploads:${normalizedEmail}`;
+  const client = await getMongoClient();
+  const db = client.db('video-upload');
+  const collection = db.collection<UploadRecord>('uploads');
   
-  // Get existing record
-  let record = await redis.get<UploadRecord>(key);
+  const normalizedEmail = email.toLowerCase().trim();
 
-  // Initialize if needed
-  if (!record) {
-    record = { count: 0, uploads: [] };
-  }
+  // Get existing record
+  const record = await collection.findOne({ email: normalizedEmail });
 
   // Check limit
-  if (record.count >= MAX_UPLOADS_PER_EMAIL) {
+  if (record && record.count >= MAX_UPLOADS_PER_EMAIL) {
     return {
       success: false,
       remaining: 0,
@@ -81,20 +90,28 @@ export async function recordUpload(
     };
   }
 
-  // Record the upload
-  record.count += 1;
-  record.uploads.push({
-    timestamp: new Date().toISOString(),
-    fileName,
-    fileId,
-  });
+  // Upsert the record
+  await collection.updateOne(
+    { email: normalizedEmail },
+    {
+      $inc: { count: 1 },
+      $push: {
+        uploads: {
+          timestamp: new Date(),
+          fileName,
+          fileId,
+        },
+      },
+      $setOnInsert: { email: normalizedEmail },
+    },
+    { upsert: true }
+  );
 
-  // Save to Redis (expire after 30 days)
-  await redis.set(key, record, { ex: 60 * 60 * 24 * 30 });
+  const newCount = (record?.count || 0) + 1;
 
   return {
     success: true,
-    remaining: MAX_UPLOADS_PER_EMAIL - record.count,
+    remaining: MAX_UPLOADS_PER_EMAIL - newCount,
   };
 }
 
@@ -102,8 +119,11 @@ export async function recordUpload(
  * Get upload history for an email
  */
 export async function getUploadHistory(email: string) {
-  const redis = getRedis();
+  const client = await getMongoClient();
+  const db = client.db('video-upload');
+  const collection = db.collection<UploadRecord>('uploads');
+  
   const normalizedEmail = email.toLowerCase().trim();
-  const record = await redis.get<UploadRecord>(`uploads:${normalizedEmail}`);
+  const record = await collection.findOne({ email: normalizedEmail });
   return record?.uploads || [];
 }
