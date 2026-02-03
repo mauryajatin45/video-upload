@@ -14,33 +14,11 @@ export default function UploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validateVideo = useCallback(async (file: File): Promise<string | null> => {
-    // Check file type
+    // Only check file type - no size or duration limits
     if (!['video/mp4', 'video/quicktime'].includes(file.type)) {
       return 'Please upload an MP4 or MOV file';
     }
-
-    // Check file size (50MB max)
-    if (file.size > 50 * 1024 * 1024) {
-      return 'Video must be under 50MB';
-    }
-
-    // Check duration
-    return new Promise((resolve) => {
-      const videoEl = document.createElement('video');
-      videoEl.preload = 'metadata';
-      videoEl.onloadedmetadata = () => {
-        URL.revokeObjectURL(videoEl.src);
-        if (videoEl.duration > 15) {
-          resolve('Video must be 15 seconds or less');
-        } else {
-          resolve(null);
-        }
-      };
-      videoEl.onerror = () => {
-        resolve('Unable to read video file');
-      };
-      videoEl.src = URL.createObjectURL(file);
-    });
+    return null;
   }, []);
 
   const handleFileSelect = useCallback(async (file: File) => {
@@ -154,7 +132,7 @@ export default function UploadPage() {
       <div className="upload-card">
         <h1 className="upload-title">Share Your KYST Moment</h1>
         <p className="upload-subtitle">
-          Upload a quick 5–15 second reaction video — gift opening, happy tears, bridesmaid chaos… anything.
+          Upload your reaction video — gift opening, happy tears, bridesmaid chaos… anything.
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -185,7 +163,7 @@ export default function UploadPage() {
               >
                 <div className="drop-zone-icon">🎬</div>
                 <p className="drop-zone-text">Tap to select or drag your video here</p>
-                <p className="drop-zone-hint">MP4 or MOV • Max 15 seconds • Max 50MB</p>
+                <p className="drop-zone-hint">MP4 or MOV format</p>
               </div>
             ) : (
               <div className="video-preview">
