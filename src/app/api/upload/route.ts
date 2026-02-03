@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadToGoogleDrive } from '@/lib/googleDrive';
-import { recordUpload } from '@/lib/uploadTracker';
+import { canUpload, recordUpload, getRemainingUploads } from '@/lib/uploadTracker';
 
 const ALLOWED_TYPES = ['video/mp4', 'video/quicktime'];
 
@@ -34,7 +34,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // No upload limit check - users can upload as many as they want
+    // Check upload limit (2 per email)
+    const canUploadMore = await canUpload(email);
+    if (!canUploadMore) {
+      return NextResponse.json(
+        { error: 'You have reached the maximum of 2 uploads for this email address' },
+        { status: 429 }
+      );
+    }
 
     // Convert File to Buffer
     const arrayBuffer = await video.arrayBuffer();
@@ -55,12 +62,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Record the upload (for tracking purposes, but no limit enforced)
+    // Record the upload
     await recordUpload(email, video.name, uploadResult.fileId);
+    
+    const remaining = await getRemainingUploads(email);
 
     return NextResponse.json({
       success: true,
-      message: 'Video uploaded successfully! Thank you for sharing your KYST moment.',
+      message: remaining > 0 
+        ? `Video uploaded successfully! You have ${remaining} upload${remaining === 1 ? '' : 's'} remaining.`
+        : 'Video uploaded successfully! This was your last allowed upload.',
       fileId: uploadResult.fileId,
       fileName: uploadResult.fileName,
     });
