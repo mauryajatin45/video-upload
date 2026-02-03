@@ -130,10 +130,10 @@ export default function UploadPage() {
   return (
     <div className="upload-container">
       <div className="upload-card">
-        <h1 className="upload-title">Share Your KYST Moment</h1>
+        {/* <h1 className="upload-title">Share Your KYST Moment</h1>
         <p className="upload-subtitle">
           Upload your reaction video — gift opening, happy tears, bridesmaid chaos… anything.
-        </p>
+        </p> */}
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
