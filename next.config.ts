@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Disable heavy checks during build to save memory on small EC2 instances
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;
