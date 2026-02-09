@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '60mb',
     },
   },
+  // Optimize for Docker/VPS deployment
+  output: 'standalone',
   // Redirect root to upload page
   async redirects() {
     return [
